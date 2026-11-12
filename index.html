@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pomodoro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#eeedbf;
+    --sage:#95b5ae;
+    --sage-dark:#7c9b94;
+    --coral:#e8ab98;
+    --coral-dark:#c8613f;
+    --ink:#111;
+    /* unidade que escala com o menor lado do bloco */
+    --u: min(1vw, 1.05vh);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--cream);overflow:hidden}
+  body{
+    font-family:"Space Mono",ui-monospace,Menlo,monospace;
+    color:var(--ink);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .card{
+    width:100%;height:100%;
+    padding:calc(var(--u)*3.5);
+    display:grid;
+    grid-template-rows: minmax(0,1.25fr) minmax(0,.6fr) minmax(0,1fr);
+    gap:calc(var(--u)*3);
+  }
+  .display{
+    background:var(--sage);
+    border-radius:calc(var(--u)*3);
+    border-top:calc(var(--u)*1) solid var(--sage-dark);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:700;
+    font-size:calc(var(--u)*17);
+    letter-spacing:.02em;
+    line-height:1;
+  }
+  .row{display:flex;align-items:center;gap:calc(var(--u)*3);min-height:0;height:100%}
+  .label{
+    flex:1;height:100%;
+    background:var(--sage);
+    border-radius:calc(var(--u)*2.5);
+    border-top:calc(var(--u)*.8) solid var(--sage-dark);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:calc(var(--u)*7);
+  }
+  .round{
+    aspect-ratio:1/1;height:85%;
+    border:none;border-radius:50%;
+    background:var(--coral);
+    box-shadow: calc(var(--u)*.6) calc(var(--u)*.9) 0 var(--coral-dark);
+    color:#1677ff;
+    font-size:calc(var(--u)*5.5);
+    cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .round:active{transform:translate(calc(var(--u)*.4),calc(var(--u)*.6));box-shadow:0 0 0 var(--coral-dark)}
+  .lengths{display:grid;grid-template-columns:1fr 1fr;gap:calc(var(--u)*3);min-height:0}
+  .box{
+    border:calc(var(--u)*.6) solid var(--coral);
+    border-radius:calc(var(--u)*2.5);
+    display:flex;flex-direction:column;align-items:center;justify-content:space-evenly;
+    padding:calc(var(--u)*1.5);min-height:0;overflow:hidden;
+  }
+  .box h2{font-size:calc(var(--u)*4.6);font-weight:700;white-space:nowrap}
+  .box .val{font-size:calc(var(--u)*9);font-weight:700;line-height:1}
+  .arrows{display:flex;gap:calc(var(--u)*3)}
+  .arrows .round{height:auto;width:calc(var(--u)*9);font-size:calc(var(--u)*4.2);color:var(--ink)}
+  svg{width:45%;height:45%}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="display" id="time">25:00</div>
+
+  <div class="row">
+    <div class="label" id="mode">Session</div>
+    <button class="round" id="start" aria-label="Iniciar ou pausar">
+      <svg id="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>
+    </button>
+    <button class="round" id="reset" aria-label="Reiniciar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+    </button>
+  </div>
+
+  <div class="lengths">
+    <div class="box">
+      <h2>Break Length</h2>
+      <div class="val" id="breakVal">5</div>
+      <div class="arrows">
+        <button class="round" data-t="break" data-d="1" aria-label="Aumentar pausa">↑</button>
+        <button class="round" data-t="break" data-d="-1" aria-label="Diminuir pausa">↓</button>
+      </div>
+    </div>
+    <div class="box">
+      <h2>Session Length</h2>
+      <div class="val" id="sessionVal">25</div>
+      <div class="arrows">
+        <button class="round" data-t="session" data-d="1" aria-label="Aumentar sessão">↑</button>
+        <button class="round" data-t="session" data-d="-1" aria-label="Diminuir sessão">↓</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var len = {session:25, break:5};
+  var mode = 'session';
+  var left = len.session * 60;
+  var timer = null;
+  var endAt = 0;
+
+  var $ = function(id){return document.getElementById(id)};
+  var PLAY = '<path d="M7 4l13 8-13 8z"/>';
+  var PAUSE = '<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>';
+
+  function fmt(s){
+    var m = Math.floor(s/60), r = s%60;
+    return (m<10?'0':'')+m+':'+(r<10?'0':'')+r;
+  }
+  function render(){
+    $('time').textContent = fmt(left);
+    $('mode').textContent = mode === 'session' ? 'Session' : 'Break';
+    $('sessionVal').textContent = len.session;
+    $('breakVal').textContent = len.break;
+    $('icon').innerHTML = timer ? PAUSE : PLAY;
+    document.title = fmt(left) + ' · ' + (mode==='session'?'Session':'Break');
+  }
+
+  var ctx = null;
+  function beep(){
+    try{
+      ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+      [0, .35, .7].forEach(function(t){
+        var o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = 880;
+        g.gain.setValueAtTime(.0001, ctx.currentTime + t);
+        g.gain.exponentialRampToValueAtTime(.3, ctx.currentTime + t + .02);
+        g.gain.exponentialRampToValueAtTime(.0001, ctx.currentTime + t + .3);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + .32);
+      });
+    }catch(e){}
+  }
+
+  function tick(){
+    left = Math.max(0, Math.round((endAt - Date.now())/1000));
+    if(left === 0){
+      beep();
+      mode = mode === 'session' ? 'break' : 'session';
+      left = len[mode] * 60;
+      endAt = Date.now() + left*1000;
+    }
+    render();
+  }
+
+  function toggle(){
+    try{ ctx = ctx || new (window.AudioContext || window.webkitAudioContext)(); if(ctx.state==='suspended') ctx.resume(); }catch(e){}
+    if(timer){ clearInterval(timer); timer = null; }
+    else { endAt = Date.now() + left*1000; timer = setInterval(tick, 250); }
+    render();
+  }
+  function reset(){
+    if(timer){ clearInterval(timer); timer = null; }
+    mode = 'session'; left = len.session * 60; render();
+  }
+
+  $('start').addEventListener('click', toggle);
+  $('reset').addEventListener('click', reset);
+  Array.prototype.forEach.call(document.querySelectorAll('[data-t]'), function(b){
+    b.addEventListener('click', function(){
+      if(timer) return;
+      var t = b.getAttribute('data-t'), d = +b.getAttribute('data-d');
+      len[t] = Math.min(60, Math.max(1, len[t] + d));
+      if(t === mode) left = len[t]*60;
+      render();
+    });
+  });
+  render();
+})();
+</script>
+</body>
+</html>
