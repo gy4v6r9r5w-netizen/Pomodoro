@@ -118,6 +118,37 @@
   var timer = null;
   var endAt = 0;
 
+  /* Estado salvo no navegador: o timer continua contando quando você
+     troca de página no Notion e retoma ao reabrir qualquer página com o embed. */
+  var KEY = 'pomodoro-state-v1';
+  function save(){
+    try{
+      localStorage.setItem(KEY, JSON.stringify({
+        len:len, mode:mode, left:left, running:!!timer, endAt:endAt
+      }));
+    }catch(e){}
+  }
+  function load(){
+    try{
+      var s = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if(!s || !s.len) return false;
+      len = {session:+s.len.session||25, break:+s.len.break||5};
+      mode = s.mode === 'break' ? 'break' : 'session';
+      left = +s.left || len[mode]*60;
+      endAt = +s.endAt || 0;
+      return !!s.running;
+    }catch(e){ return false; }
+  }
+  /* avança pelas fases que terminaram enquanto o embed estava fechado */
+  function catchUp(){
+    var now = Date.now(), guard = 0;
+    while(endAt <= now && guard++ < 500){
+      mode = mode === 'session' ? 'break' : 'session';
+      endAt += len[mode]*60*1000;
+    }
+    left = Math.max(0, Math.round((endAt - now)/1000));
+  }
+
   var $ = function(id){return document.getElementById(id)};
   var PLAY = '<path d="M7 4l13 8-13 8z"/>';
   var PAUSE = '<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>';
@@ -157,21 +188,39 @@
       beep();
       mode = mode === 'session' ? 'break' : 'session';
       left = len[mode] * 60;
-      endAt = Date.now() + left*1000;
+      endAt += left*1000;
+      if(endAt <= Date.now()) catchUp();
+      save();
     }
     render();
   }
 
+  function start(){ if(!timer) timer = setInterval(tick, 250); }
+  function stop(){ if(timer){ clearInterval(timer); timer = null; } }
+
   function toggle(){
     try{ ctx = ctx || new (window.AudioContext || window.webkitAudioContext)(); if(ctx.state==='suspended') ctx.resume(); }catch(e){}
-    if(timer){ clearInterval(timer); timer = null; }
-    else { endAt = Date.now() + left*1000; timer = setInterval(tick, 250); }
-    render();
+    if(timer){ left = Math.max(0, Math.round((endAt - Date.now())/1000)); stop(); }
+    else { endAt = Date.now() + left*1000; start(); }
+    save(); render();
   }
   function reset(){
-    if(timer){ clearInterval(timer); timer = null; }
-    mode = 'session'; left = len.session * 60; render();
+    stop();
+    mode = 'session'; left = len.session * 60; endAt = 0;
+    save(); render();
   }
+
+  /* se houver dois embeds abertos ao mesmo tempo, mantém os dois sincronizados */
+  window.addEventListener('storage', function(e){
+    if(e.key !== KEY) return;
+    stop();
+    if(load()){ catchUp(); start(); }
+    render();
+  });
+  /* ao voltar para a aba/app, recalcula na hora */
+  document.addEventListener('visibilitychange', function(){
+    if(!document.hidden && timer) tick();
+  });
 
   $('start').addEventListener('click', toggle);
   $('reset').addEventListener('click', reset);
@@ -181,9 +230,11 @@
       var t = b.getAttribute('data-t'), d = +b.getAttribute('data-d');
       len[t] = Math.min(60, Math.max(1, len[t] + d));
       if(t === mode) left = len[t]*60;
-      render();
+      save(); render();
     });
   });
+
+  if(load()){ catchUp(); start(); save(); }
   render();
 })();
 </script>
